@@ -100,7 +100,7 @@ class TD3DNeck(BaseModule):
         Args:
             in_channels (int): Number of input channels.
             out_channels (int): Number of output channels.
-            generative (bool): Use transposed convolution if True.
+            transpose (bool): Use transposed convolution if True.
                 Defaults to False.
             stride (int): Stride of the convolution. Defaults to 1.
 
