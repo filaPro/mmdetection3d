@@ -102,6 +102,10 @@ class TD3D(Base3DDetector):
             minkowski_algorithm=ME.MinkowskiAlgorithm.SPEED_OPTIMIZED,
             device=points[0].device)
     
+    def _forward(*args, **kwargs):
+        """Implement abstract method of Base3DDetector"""
+        pass
+    
     def loss(self, batch_inputs_dict: dict, batch_data_samples: SampleList,
              **kwargs) -> Union[dict, list]:
         """Calculate losses from a batch of inputs dict and data samples.
@@ -111,17 +115,18 @@ class TD3D(Base3DDetector):
                 `points` key.
             batch_data_samples (List[:obj:`Det3DDataSample`]): The Data
                 Samples. It includes information such as
-                `gt_instance_3d` and `gt_sem_seg_3d`.
+                `gt_instances_3d` and `gt_sem_seg_3d`.
 
         Returns:
             dict: A dictionary of loss components.
         """
         annotated_points = []
-        for i in range(batch_data_samples):
+        for i in range(len(batch_data_samples)):
+            gt_pts_seg = batch_data_samples[i].gt_pts_seg
             annotated_points.append(torch.cat((
                 batch_inputs_dict['points'][i],
-                batch_data_samples[i].gt_instance_3d.unsqueeze(1),
-                batch_data_samples[i].gt_sem_seg_3d.unsqueeze(1))))
+                gt_pts_seg.pts_instance_mask.unsqueeze(1),
+                gt_pts_seg.pts_semantic_mask.unsqueeze(1)), dim=1))
 
         field = self.collate(
             annotated_points, ME.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
@@ -132,7 +137,8 @@ class TD3D(Base3DDetector):
             coordinate_map_key=x.coordinate_map_key,
             coordinate_manager=x.coordinate_manager)
         x = self.extract_feat(x)
-        losses = self.head.loss(x, pts_targets, batch_data_samples, **kwargs)
+        losses = self.bbox_head.loss(
+            x, pts_targets, batch_data_samples, **kwargs)
         return losses
     
     def predict(self, batch_inputs_dict: dict, batch_data_samples: SampleList,
