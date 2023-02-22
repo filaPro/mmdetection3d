@@ -44,7 +44,7 @@ class TD3DMinkUNet(BaseModule):
     }
 
     def __init__(self,
-                 depth: str,
+                 depth: int,
                  in_channels: int,
                  out_channels: int,
                  num_planes: Tuple[int] =
@@ -54,8 +54,8 @@ class TD3DMinkUNet(BaseModule):
             raise ImportError(
                 'Please follow `getting_started.md` to install MinkowskiEngine.`'  # noqa: E501
             )
-        assert num_planes % 2 == 0
-        height = num_planes // 2
+        assert len(num_planes) % 2 == 0
+        height = len(num_planes) // 2
         self.height = height
         if depth not in self.arch_settings:
             raise KeyError(f'invalid depth {depth} for resnet')
@@ -73,7 +73,7 @@ class TD3DMinkUNet(BaseModule):
                     stride=2))
             self.__setattr__(
                 f'down_block_{i}',
-                self._make_layer(block, num_planes[i], stage_blocks[i]))
+                self._make_layer(block, num_planes[i], stage_blocks[i], stride=2))
         for i in range(height):
             self.__setattr__(
                 f'up_conv_{height - 1 - i}',
@@ -85,7 +85,7 @@ class TD3DMinkUNet(BaseModule):
             self.__setattr__(
                 f'up_block_{height - 1 - i}',
                 self._make_layer(block, num_planes[num_planes // 2 + i],
-                    stage_blocks[height + i]))
+                    stage_blocks[height + i], stride=2))
         self.out_conv = ME.MinkowskiConvolution(
             num_planes[-1] * block.expansion, out_channels, kernel_size=1,
             bias=True, dimension=3)

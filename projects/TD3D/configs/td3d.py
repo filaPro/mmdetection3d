@@ -17,9 +17,20 @@ model = dict(
         out_channels=128,
         seg_out_channels=32),
     bbox_head=dict(
-        type='TD3DHead',
-        voxel_size=0.02),
-    train_cfg=dict(),
+        type='TD3DSegmentationHead',
+        voxel_size=0.02,
+        assigner_iou_thr=0.25,
+        roi_extractor=dict(
+            type='Mink3DRoIExtractor',
+            voxel_size=0.02,
+            padding=0.08,
+            min_pts_threshold=10),
+        unet=dict(
+            type='TD3DMinkUNet', 
+            in_channels=32, 
+            out_channels=18 + 1,
+            depth=14)),
+    train_cfg=dict(num_rois=2),
     test_cfg=dict())
 
 optim_wrapper = dict(

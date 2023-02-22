@@ -137,8 +137,10 @@ class TD3D(Base3DDetector):
             coordinate_map_key=x.coordinate_map_key,
             coordinate_manager=x.coordinate_manager)
         x = self.extract_feat(x)
-        losses = self.bbox_head.loss(
-            x, pts_targets, batch_data_samples, **kwargs)
+        losses = self.bbox_head.loss(x[0], pts_targets, 
+                                    [batch_data_samples[i].gt_instances_3d.bboxes_3d for i in range(len(batch_data_samples))],
+                                    [torch.randint(10, (len(batch_data_samples[i].gt_instances_3d.bboxes_3d), )) for i in range(len(batch_data_samples))],
+                                    batch_data_samples, **kwargs)
         return losses
     
     def predict(self, batch_inputs_dict: dict, batch_data_samples: SampleList,
