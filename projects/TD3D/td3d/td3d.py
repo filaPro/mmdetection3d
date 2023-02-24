@@ -28,6 +28,8 @@ class TD3D(Base3DDetector):
         backbone (dict): Config dict of detector's backbone.
         neck (dict, optional): Config dict of neck. Defaults to None.
         bbox_head (dict, optional): Config dict of box head. Defaults to None.
+        seg_head (dict, optional): Config dict of instance segmentation head.
+            Defaults to None.
         train_cfg (dict, optional): Config dict of training hyper-parameters.
             Defaults to None.
         test_cfg (dict, optional): Config dict of test hyper-parameters.
@@ -42,6 +44,7 @@ class TD3D(Base3DDetector):
                  backbone: ConfigType,
                  neck: OptConfigType = None,
                  bbox_head: OptConfigType = None,
+                 seg_head: OptConfigType = None,
                  train_cfg: OptConfigType = None,
                  test_cfg: OptConfigType = None,
                  data_preprocessor: OptConfigType = None,
@@ -58,6 +61,9 @@ class TD3D(Base3DDetector):
         bbox_head.update(train_cfg=train_cfg)
         bbox_head.update(test_cfg=test_cfg)
         self.bbox_head = MODELS.build(bbox_head)
+        seg_head.update(train_cfg=train_cfg)
+        seg_head.update(test_cfg=test_cfg)
+        self.seg_head = MODELS.build(seg_head)
         self.voxel_size = bbox_head['voxel_size']
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
@@ -137,8 +143,11 @@ class TD3D(Base3DDetector):
             coordinate_map_key=x.coordinate_map_key,
             coordinate_manager=x.coordinate_manager)
         x = self.extract_feat(x)
-        losses = self.bbox_head.loss(
-            x, pts_targets, batch_data_samples, **kwargs)
+        losses, proposals = self.bbox_head.loss_and_predict(
+            x[1:], batch_data_samples, **kwargs)
+        seg_losses = self.seg_head.loss(
+            x[0], proposals, pts_targets, batch_data_samples, **kwargs)
+        losses.update(seg_losses)
         return losses
     
     def predict(self, batch_inputs_dict: dict, batch_data_samples: SampleList,
@@ -171,8 +180,10 @@ class TD3D(Base3DDetector):
             points, ME.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
         x = field.sparse()
         x = self.extract_feat(x)
-        results_list = self.bbox_head.predict(
-            x, field, batch_data_samples, **kwargs)
+        proposals = self.bbox_head.predict(
+            x[1:], batch_data_samples, **kwargs)
+        results_list = self.seg_head.predict(  # todo: uncomment
+            x, field, proposals, batch_data_samples, **kwargs)
         for i, data_sample in enumerate(batch_data_samples):
             data_sample.pred_instances_3d = results_list[i]
         return batch_data_samples

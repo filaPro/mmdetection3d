@@ -1,6 +1,9 @@
 _base_ = ['./td3d.py']
 custom_imports = dict(imports=['projects.TD3D.td3d'])
 
+# model settings
+model = dict(bbox_head=dict(num_classes=18))
+
 # dataset settings
 dataset_type = 'ScanNetDataset'
 data_root = 'data/scannet/'
@@ -111,7 +114,3 @@ test_dataloader = dict(
         box_type_3d='Depth'))
 val_evaluator = dict(type='InstanceSegMetric')
 test_evaluator = val_evaluator
-
-# vis_backends = [dict(type='LocalVisBackend')]
-# visualizer = dict(
-#     type='Det3DLocalVisualizer', vis_backends=vis_backends, name='visualizer')

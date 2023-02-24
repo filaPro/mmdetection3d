@@ -19,9 +19,9 @@ from mmdet3d.structures.det3d_data_sample import SampleList
 
 
 @MODELS.register_module()
-class TD3DHead(BaseModule):
+class TD3DSegmentationHead(BaseModule):
     def __init__(self, voxel_size, train_cfg=None, test_cfg=None):
-        super(TD3DHead, self).__init__()
+        super(TD3DSegmentationHead, self).__init__()
         self.voxel_size = voxel_size
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg

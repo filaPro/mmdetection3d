@@ -17,10 +17,21 @@ model = dict(
         out_channels=128,
         seg_out_channels=32),
     bbox_head=dict(
-        type='TD3DHead',
+        type='TD3DDetectionHead',
+        in_channels=128,
+        voxel_size=0.02,
+        padding=0.08,
+        pts_assign_threshold=18,
+        pts_center_threshold=8),
+    seg_head=dict(
+        type='TD3DSegmentationHead',
         voxel_size=0.02),
-    train_cfg=dict(),
-    test_cfg=dict())
+    train_cfg=dict(num_proposals=2),
+    test_cfg=dict(
+        nms_pre=1200,
+        iou_thr=0.4,
+        det_score_thr=0.1,
+        seg_score_thr=0.2))
 
 optim_wrapper = dict(
     type='OptimWrapper',
