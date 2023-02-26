@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from typing import Tuple
+from typing import List
 
 try:
     import MinkowskiEngine as ME
@@ -16,11 +16,17 @@ from mmengine.model import BaseModule
 from mmengine.structures import InstanceData
 from mmdet3d.registry import MODELS
 from mmdet3d.structures.det3d_data_sample import SampleList
+from mmdet3d.structures import PointData
 
 
 @MODELS.register_module()
 class TD3DSegmentationHead(BaseModule):
-    def __init__(self, voxel_size, train_cfg=None, test_cfg=None):
+    def __init__(self,
+                 voxel_size,
+                 multiclass_loss=None,  # todo: add focal loss here
+                 binary_loss=None,  # todo: abbd bce losss here
+                 train_cfg=None,
+                 test_cfg=None):
         super(TD3DSegmentationHead, self).__init__()
         self.voxel_size = voxel_size
         self.train_cfg = train_cfg
@@ -28,16 +34,27 @@ class TD3DSegmentationHead(BaseModule):
 
 
     def loss(self,
-        x: Tuple[SparseTensor],
-        pts_targets: Tensor,
-        batch_data_samples: SampleList,
-        **kwargs) -> dict:
+             x: SparseTensor,
+             proposals: List[InstanceData],
+             pts_targets: Tensor,
+             batch_data_samples: SampleList,
+             **kwargs) -> dict:
         
-        return {'loss': torch.sum(x[0].features * 0)}
+        return dict(
+            multiclass_loss=torch.sum(x.features * 0),
+            binary_loss=torch.sum(x.features * 0))
     
-    def predict(self, 
-        x: SparseTensor, 
-        field: TensorField, 
-        batch_data_samples: SampleList,
-        **kwargs) -> Tuple:
-        pass
+    def predict(self,
+                x: SparseTensor, 
+                field: TensorField,
+                proposals: List[InstanceData],
+                batch_data_samples: SampleList,
+                **kwargs) -> List[PointData]:
+        results = []
+        for _ in range(len(batch_data_samples)):
+            results.append(PointData(
+                pts_instance_mask=torch.ones(
+                    (2, field.coordinates.shape[0]), dtype=torch.bool),
+                instance_labels=torch.tensor([1, 2]),
+                instance_scores=torch.tensor([0.7, 0.8])))
+        return results

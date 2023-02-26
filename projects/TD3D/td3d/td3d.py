@@ -182,8 +182,8 @@ class TD3D(Base3DDetector):
         x = self.extract_feat(x)
         proposals = self.bbox_head.predict(
             x[1:], batch_data_samples, **kwargs)
-        results_list = self.seg_head.predict(  # todo: uncomment
+        results_list = self.seg_head.predict(
             x, field, proposals, batch_data_samples, **kwargs)
         for i, data_sample in enumerate(batch_data_samples):
-            data_sample.pred_instances_3d = results_list[i]
+            data_sample.pred_pts_seg = results_list[i]
         return batch_data_samples

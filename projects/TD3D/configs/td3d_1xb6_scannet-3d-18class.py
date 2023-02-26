@@ -1,19 +1,10 @@
-_base_ = ['./td3d.py']
+_base_ = ['./td3d.py', 'mmdet3d::_base_/datasets/scannet-3d.py']
 custom_imports = dict(imports=['projects.TD3D.td3d'])
 
 # model settings
 model = dict(bbox_head=dict(num_classes=18))
 
 # dataset settings
-dataset_type = 'ScanNetDataset'
-data_root = 'data/scannet/'
-
-metainfo = dict(
-    classes=('cabinet', 'bed', 'chair', 'sofa', 'table', 'door', 'window',
-             'bookshelf', 'picture', 'counter', 'desk', 'curtain',
-             'refrigerator', 'showercurtrain', 'toilet', 'sink', 'bathtub',
-             'garbagebin'))
-
 train_pipeline = [
     dict(
         type='LoadPointsFromFile',
@@ -58,6 +49,12 @@ test_pipeline = [
         use_color=True,
         load_dim=6,
         use_dim=[0, 1, 2, 3, 4, 5]),
+    dict(
+        type='LoadAnnotations3D',
+        with_bbox_3d=False,
+        with_label_3d=False,
+        with_mask_3d=True,
+        with_seg_3d=True),
     dict(type='GlobalAlignment', rotation_axis=2),
     dict(
         type='MultiScaleFlipAug3D',
@@ -73,44 +70,12 @@ test_pipeline = [
 train_dataloader = dict(
     batch_size=6,
     num_workers=4,
-    sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
-        type='RepeatDataset',
         times=10,
         dataset=dict(
-            type=dataset_type,
-            data_root=data_root,
-            ann_file='scannet_infos_train.pkl',
             pipeline=train_pipeline,
-            filter_empty_gt=True,
-            metainfo=metainfo,
-            # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
-            # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-            box_type_3d='Depth')))
-
-val_dataloader = dict(
-    batch_size=1,
-    num_workers=1,
-    sampler=dict(type='DefaultSampler', shuffle=False),
-    dataset=dict(
-        type=dataset_type,
-        data_root=data_root,
-        ann_file='scannet_infos_val.pkl',
-        pipeline=test_pipeline,
-        metainfo=metainfo,
-        test_mode=True,
-        box_type_3d='Depth'))
-test_dataloader = dict(
-    batch_size=1,
-    num_workers=1,
-    sampler=dict(type='DefaultSampler', shuffle=False),
-    dataset=dict(
-        type=dataset_type,
-        data_root=data_root,
-        ann_file='scannet_infos_val.pkl',
-        pipeline=test_pipeline,
-        metainfo=metainfo,
-        test_mode=True,
-        box_type_3d='Depth'))
-val_evaluator = dict(type='InstanceSegMetric')
+            filter_empty_gt=True)))
+val_dataloader = dict(dataset=dict(pipeline=test_pipeline))
+test_dataloader = val_dataloader
+val_evaluator = dict(type='TD3DInstanceSegMetric')
 test_evaluator = val_evaluator
