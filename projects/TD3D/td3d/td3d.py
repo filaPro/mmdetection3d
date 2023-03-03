@@ -174,7 +174,7 @@ class TD3D(Base3DDetector):
         x = field.sparse()
         x = self.extract_feat(x)
         results_list = self.bbox_head.predict(
-            x, field, batch_data_samples, **kwargs)
+            x, field, [], batch_data_samples, **kwargs)
         for i, data_sample in enumerate(batch_data_samples):
             data_sample.pred_instances_3d = results_list[i]
         return batch_data_samples

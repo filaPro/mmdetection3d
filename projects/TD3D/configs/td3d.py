@@ -19,6 +19,7 @@ model = dict(
     bbox_head=dict(
         type='TD3DSegmentationHead',
         voxel_size=0.02,
+        n_classes=18,
         assigner_iou_thr=0.25,
         roi_extractor=dict(
             type='Mink3DRoIExtractor',

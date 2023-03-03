@@ -48,7 +48,7 @@ class TD3DMinkUNet(BaseModule):
                  in_channels: int,
                  out_channels: int,
                  num_planes: Tuple[int] =
-                    (32, 64, 128, 256, 128, 128, 96, 96)):
+                    (32, 64, 128, 256, 128, 128, 128, 128)):
         super(TD3DMinkUNet, self).__init__()
         if ME is None:
             raise ImportError(
@@ -73,19 +73,19 @@ class TD3DMinkUNet(BaseModule):
                     stride=2))
             self.__setattr__(
                 f'down_block_{i}',
-                self._make_layer(block, num_planes[i], stage_blocks[i], stride=2))
+                self._make_layer(block, num_planes[i], stage_blocks[i], stride=1))
         for i in range(height):
             self.__setattr__(
                 f'up_conv_{height - 1 - i}',
-                self._make_conv(self.inplanes, self.inplanes, kernel_size=2,
+                self._make_conv(self.inplanes, num_planes[height + i], kernel_size=2,
                     stride=2, transpose=True))
             down_channels = num_planes[height - 2 - i] * block.expansion \
-                if i != 0 else init_channels
+                if i != height - 1 else init_channels
             self.inplanes = num_planes[height + i] + down_channels
             self.__setattr__(
                 f'up_block_{height - 1 - i}',
-                self._make_layer(block, num_planes[num_planes // 2 + i],
-                    stage_blocks[height + i], stride=2))
+                self._make_layer(block, num_planes[height + i],
+                    stage_blocks[height + i], stride=1))
         self.out_conv = ME.MinkowskiConvolution(
             num_planes[-1] * block.expansion, out_channels, kernel_size=1,
             bias=True, dimension=3)
