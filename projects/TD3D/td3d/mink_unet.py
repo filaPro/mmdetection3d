@@ -1,7 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 # Follow https://github.com/NVIDIA/MinkowskiEngine/blob/master/examples/minkunet.py # noqa
 # and mmdet3d/models/backbones/mink_resnet.py
-from typing import List, Tuple, Union
+from typing import Tuple, Union
 
 try:
     import MinkowskiEngine as ME
@@ -23,7 +23,6 @@ class TD3DMinkUNet(BaseModule):
     <https://arxiv.org/abs/1904.08755>`_ for more details.
     MinkUNet class in mmdet3d may have different interface in
     the future so we call it TD3DMinkUNet for now.
-
     Args:
         depth (int): Depth of resnet, from {14, 18, 34, 50, 101}.
         in_channels (int): Number of input channels, 3 for RGB.
@@ -44,18 +43,18 @@ class TD3DMinkUNet(BaseModule):
     }
 
     def __init__(self,
-                 depth: str,
+                 depth: int,
                  in_channels: int,
                  out_channels: int,
                  num_planes: Tuple[int] =
-                    (32, 64, 128, 256, 128, 128, 96, 96)):
+                    (32, 64, 128, 256, 128, 128, 128, 128)):
         super(TD3DMinkUNet, self).__init__()
         if ME is None:
             raise ImportError(
                 'Please follow `getting_started.md` to install MinkowskiEngine.`'  # noqa: E501
             )
-        assert num_planes % 2 == 0
-        height = num_planes // 2
+        assert len(num_planes) % 2 == 0
+        height = len(num_planes) // 2
         self.height = height
         if depth not in self.arch_settings:
             raise KeyError(f'invalid depth {depth} for resnet')
@@ -73,19 +72,19 @@ class TD3DMinkUNet(BaseModule):
                     stride=2))
             self.__setattr__(
                 f'down_block_{i}',
-                self._make_layer(block, num_planes[i], stage_blocks[i]))
+                self._make_layer(block, num_planes[i], stage_blocks[i], stride=1))
         for i in range(height):
             self.__setattr__(
                 f'up_conv_{height - 1 - i}',
-                self._make_conv(self.inplanes, self.inplanes, kernel_size=2,
+                self._make_conv(self.inplanes, num_planes[height + i], kernel_size=2,
                     stride=2, transpose=True))
             down_channels = num_planes[height - 2 - i] * block.expansion \
-                if i != 0 else init_channels
+                if i != height - 1 else init_channels
             self.inplanes = num_planes[height + i] + down_channels
             self.__setattr__(
                 f'up_block_{height - 1 - i}',
-                self._make_layer(block, num_planes[num_planes // 2 + i],
-                    stage_blocks[height + i]))
+                self._make_layer(block, num_planes[height + i],
+                    stage_blocks[height + i], stride=1))
         self.out_conv = ME.MinkowskiConvolution(
             num_planes[-1] * block.expansion, out_channels, kernel_size=1,
             bias=True, dimension=3)

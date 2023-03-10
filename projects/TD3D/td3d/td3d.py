@@ -129,6 +129,14 @@ class TD3D(Base3DDetector):
         annotated_points = []
         for i in range(len(batch_data_samples)):
             gt_pts_seg = batch_data_samples[i].gt_pts_seg
+
+            gt_pts_seg.pts_instance_mask[gt_pts_seg.pts_semantic_mask == 18] = -1 #todo: why 18?
+            idxs = torch.unique(gt_pts_seg.pts_instance_mask)
+            map = idxs.new_zeros(torch.max(torch.unique(gt_pts_seg.pts_instance_mask)) + 2).long()
+            for k in range(len(idxs)):
+                map[idxs[k]] = k - 1
+            gt_pts_seg.pts_instance_mask = map[gt_pts_seg.pts_instance_mask]
+
             annotated_points.append(torch.cat((
                 batch_inputs_dict['points'][i],
                 gt_pts_seg.pts_instance_mask.unsqueeze(1),
@@ -183,7 +191,7 @@ class TD3D(Base3DDetector):
         proposals = self.bbox_head.predict(
             x[1:], batch_data_samples, **kwargs)
         results_list = self.seg_head.predict(
-            x, field, proposals, batch_data_samples, **kwargs)
+            x[0], field, proposals, batch_data_samples, **kwargs)
         for i, data_sample in enumerate(batch_data_samples):
             data_sample.pred_pts_seg = results_list[i]
         return batch_data_samples
