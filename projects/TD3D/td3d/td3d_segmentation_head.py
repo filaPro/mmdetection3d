@@ -14,7 +14,7 @@ from torch import Tensor
 
 from mmengine.model import BaseModule
 from mmengine.structures import InstanceData
-from mmdet3d.registry import MODELS, TASK_UTILS
+from mmdet3d.registry import MODELS
 from mmdet3d.structures.det3d_data_sample import SampleList
 from mmdet3d.structures import PointData
 from mmdet3d.structures import BaseInstance3DBoxes
@@ -25,10 +25,8 @@ class TD3DSegmentationHead(BaseModule):
     r"""Refinement head (second stage) of 
             `TD3D <https://arxiv.org/abs/2302.02871>`_.
     Args:
-        n_classes (int): Number of classes.
+        num_classes (int): Number of classes.
         voxel_size (float): Voxel size in meters.
-        target_iou_thr (float): IoU threshold for
-        iou assigner. 
         padding (float): Padding for roi extractor.
         min_pts_threshold (int): Min number of points
         in proposals after roi extractor.
@@ -42,9 +40,8 @@ class TD3DSegmentationHead(BaseModule):
         test_cfg (dict, optional): Config for test stage. Defaults to None.
     """
     def __init__(self,
-                 n_classes: int,
+                 num_classes: int,
                  voxel_size: int,
-                 target_iou_thr: float,
                  padding: float,
                  min_pts_threshold: int,
                  unet: Optional[dict],
@@ -55,9 +52,8 @@ class TD3DSegmentationHead(BaseModule):
                  test_cfg: Optional[dict] = None):
         super(TD3DSegmentationHead, self).__init__()
         self.voxel_size = voxel_size
-        self.target_iou_thr = target_iou_thr
         self.padding = padding
-        self.n_classes = n_classes
+        self.num_classes = num_classes
         self.min_pts_threshold = min_pts_threshold
         self.unet = MODELS.build(unet)
         self.multiclass_loss =  MODELS.build(multiclass_loss)
@@ -78,13 +74,12 @@ class TD3DSegmentationHead(BaseModule):
             proposals (List[InstanceData]): Predicted bounding boxes for all
                 scenes in a mini-batch. Proposals[i].labels_3d contains assigned 
                 idxs for gt bboxes from the first stage.
-            pts_targets (Tensor): voxel-wise instance and semantic markup. 
+            pts_targets (Tensor): Voxel-wise instance and semantic markup. 
             batch_data_samples (SampleList): Batch of meta info.
 
         Returns:
-            dict: instance and semantic losses.
+            dict: Instance and semantic losses.
         """
-
         assigned_bboxes = []
         for i in range(len(batch_data_samples)):
             assigned_idxs = proposals[i].labels_3d
@@ -128,18 +123,18 @@ class TD3DSegmentationHead(BaseModule):
         """Compute targets for rois for a single scene.
         
         Args:
-            rois (BaseInstance3DBoxes): predicted rois.
+            rois (BaseInstance3DBoxes): Predicted rois.
             gt_bboxes (BaseInstance3DBoxes): Ground truth boxes.
         
         Returns:
-            Tensor: id targets for all rois.
+            Tensor: Id targets for all rois.
         """
         overlaps = AxisAlignedBboxOverlaps3D()
         ious = overlaps(torch.unsqueeze(self._bbox_to_loss(rois.tensor), 0), 
                         torch.unsqueeze(self._bbox_to_loss(gt_bboxes.tensor), 
                                         0)).squeeze(0)
         values, indices = ious.max(dim=1)
-        indices = torch.where(values > self.target_iou_thr, indices, -1)
+        indices = torch.where(values > self.train_cfg.target_iou_thr, indices, -1)
         return indices
 
     @staticmethod
@@ -173,16 +168,17 @@ class TD3DSegmentationHead(BaseModule):
                 scenes in a mini-batch.
         
         Returns:
-            preds (Tensor): Extracted feature maps for all valid proposals.
-            targets (Tensor): Extracted voxel-wise instance and semantic markup 
+            Tuple:
+            - preds (Tensor): Extracted feature maps for all valid proposals.
+            - targets (Tensor): Extracted voxel-wise instance and semantic markup
                 for all valid proposals.
-            v2r (Tensor): voxel to roi mapping.
-            r2scene (Tensor): roi to scene mapping.
-            boxes (List[BaseInstance3DBoxes]): valid boxes for all
+            - v2r (Tensor): Voxel to roi mapping.
+            - r2scene (Tensor): Roi to scene mapping.
+            - boxes (List[BaseInstance3DBoxes]): Valid boxes for all
                 scenes in a mini-batch.
-            scores (List[Tensor]): valid scores for all
+            - scores (List[Tensor]): Valid scores for all
                 scenes in a mini-batch.
-            labels (List[Tensor]): valid labels for all
+            - labels (List[Tensor]): Valid labels for all
                 scenes in a mini-batch.
         """      
         rois = [p[0] for p in proposals]
@@ -221,12 +217,13 @@ class TD3DSegmentationHead(BaseModule):
                     for one scene.
         
         Returns:
-            new_tensor (SparseTensor): Extracted feature maps for 
+            Tuple:
+            - new_tensor (SparseTensor): Extracted feature maps for 
                 all valid proposals.
-            targets (Tensor): Extracted voxel-wise instance and semantic markup 
+            - targets (Tensor): Extracted voxel-wise instance and semantic markup 
                 for all valid proposals.
-            r2scene (Tensor): roi to scene mapping.
-            valid_roi_idxs (List[Tensor]): valid boxes idxs after 
+            - r2scene (Tensor): Roi to scene mapping.
+            - valid_roi_idxs (List[Tensor]): Valid boxes idxs after
                 feature extraction.
         """
         rois = []
@@ -306,16 +303,16 @@ class TD3DSegmentationHead(BaseModule):
             cls_preds (Tensor): Extracted feature maps for all valid proposals.
             targets (Tensor): Extracted voxel-wise instance and semantic markup 
                 for all valid proposals.
-            v2r (Tensor): voxel to roi mapping.
-            r2scene (Tensor): roi to scene mapping.
-            rois (List[BaseInstance3DBoxes]): valid boxes for all
+            v2r (Tensor): Voxel to roi mapping.
+            r2scene (Tensor): Roi to scene mapping.
+            rois (List[BaseInstance3DBoxes]): Valid boxes for all
                 scenes in a mini-batch.
-            gt_idxs (List[Tensor]): bbox targets for rois for all
+            gt_idxs (List[Tensor]): Bbox targets for rois for all
                 scenes in a mini-batch.
             batch_data_samples (SampleList): Batch of meta info.
         
         Returns:
-            dict: instance and semantic losses. 
+            dict: Instance and semantic losses.
         """
         v2scene = r2scene[v2r]
         inst_losses = []
@@ -343,9 +340,9 @@ class TD3DSegmentationHead(BaseModule):
             cls_preds (Tensor): Extracted feature maps for proposals.
             targets (Tensor): Extracted voxel-wise instance and semantic markup 
                 for proposals.
-            v2r (Tensor): voxel to roi mapping.
-            rois (BaseInstance3DBoxes): valid boxes for a scene.
-            gt_idxs (Tensor): bbox targets for rois for a scene.
+            v2r (Tensor): Voxel to roi mapping.
+            rois (BaseInstance3DBoxes): Valid boxes for a scene.
+            gt_idxs (Tensor): Bbox targets for rois for a scene.
             batch_data_sample (SampleList): Batch of meta info.
         
         Returns:
@@ -369,7 +366,7 @@ class TD3DSegmentationHead(BaseModule):
 
         labels = v2bbox == inst_targets
 
-        seg_targets[seg_targets == -1] = self.n_classes
+        seg_targets[seg_targets == -1] = self.num_classes
         seg_loss = self.multiclass_loss(seg_preds, seg_targets.long())
 
         inst_loss = self.binary_loss(inst_preds, labels)
@@ -385,13 +382,13 @@ class TD3DSegmentationHead(BaseModule):
 
         Args:
             x (SparseTensor): Input feature map.
-            points (TensorField): src points for inverse mapping 
+            points (TensorField): Source points for inverse mapping.
             proposals (List[InstanceData]): Predicted bounding boxes for all
                 scenes in a mini-batch.
             batch_data_samples (SampleList): Batch of meta info.
 
         Returns:
-            results (List[PointData]): final predicted masks.
+            results (List[PointData]): Final predicted masks.
         """
         inv_mapping = points.inverse_mapping(x.coordinate_map_key).long()
         src_idxs = torch.arange(0, x.features.shape[0]).to(inv_mapping.device)
@@ -417,7 +414,6 @@ class TD3DSegmentationHead(BaseModule):
 
         return results
 
-    # per scene
     def _get_instances_single(self, 
                               cls_preds: Tensor, idxs: Tensor, 
                               v2r: Tensor, scores: Tensor, 
@@ -431,10 +427,10 @@ class TD3DSegmentationHead(BaseModule):
             v2r (Tensor): Voxel to roi mapping.
             scores (Tensor): Scores for proposals.
             labels (Tensor): Labels for proposals.
-            inverse mapping (Tensor): voxel to point mapping.
+            inverse mapping (Tensor): Voxel to point mapping.
         
         Returns:
-            (PointData): final instances.
+            PointData: Final instances.
 
         """ 
         if scores.shape[0] == 0:
