@@ -111,9 +111,9 @@ class TD3DSegmentationHead(BaseModule):
                                         assigned_idxs.new_zeros(0),                      
                                         assigned_idxs))
 
-        cls_preds, targets, v2r, r2scene, rois, _ , assigned_idxs = self._forward(x, pts_targets, assigned_bboxes)
-        loss = self._loss(cls_preds, targets, v2r, 
-                          r2scene, rois, assigned_idxs, 
+        cls_preds, targets, voxel2roi, roi2scene, rois, _ , assigned_idxs = self._forward(x, pts_targets, assigned_bboxes)
+        loss = self._loss(cls_preds, targets, voxel2roi, 
+                          roi2scene, rois, assigned_idxs, 
                           batch_data_samples)
 
         return loss
@@ -172,8 +172,8 @@ class TD3DSegmentationHead(BaseModule):
             - preds (Tensor): Extracted feature maps for all valid proposals.
             - targets (Tensor): Extracted voxel-wise instance and semantic markup
                 for all valid proposals.
-            - v2r (Tensor): Voxel to roi mapping.
-            - r2scene (Tensor): Roi to scene mapping.
+            - voxel2roi (Tensor): Voxel to roi mapping.
+            - roi2scene (Tensor): Roi to scene mapping.
             - boxes (List[BaseInstance3DBoxes]): Valid boxes for all
                 scenes in a mini-batch.
             - scores (List[Tensor]): Valid scores for all
@@ -185,7 +185,7 @@ class TD3DSegmentationHead(BaseModule):
         feats_with_targets = ME.SparseTensor(torch.cat((x.features, 
                                                         targets), axis=1), 
                                                         x.coordinates)
-        tensor, r2scene, valid_roi_idxs = self.extract(feats_with_targets, rois)
+        tensor, roi2scene, valid_roi_idxs = self.extract(feats_with_targets, rois)
 
         if tensor.features.shape[0] == 0:
             return (x.features.new_zeros((0, 1)),
@@ -198,14 +198,14 @@ class TD3DSegmentationHead(BaseModule):
 
         feats = ME.SparseTensor(tensor.features[:, :-2], tensor.coordinates)
         targets = tensor.features[:, -2:]
-        v2r = feats.coordinates[:, 0].long()
+        voxel2roi = feats.coordinates[:, 0].long()
         preds = self.unet(feats).features
 
         boxes = [p[0][mask] for p, mask in zip(proposals, valid_roi_idxs)]
         scores = [p[1][mask] for p, mask in zip(proposals, valid_roi_idxs)]
         labels = [p[2][mask] for p, mask in zip(proposals, valid_roi_idxs)]
 
-        return preds, targets, v2r, r2scene, boxes, scores, labels
+        return preds, targets, voxel2roi, roi2scene, boxes, scores, labels
 
     def extract(self, x: SparseTensor, 
                 bboxes: List[BaseInstance3DBoxes]) -> Tuple:
@@ -222,7 +222,7 @@ class TD3DSegmentationHead(BaseModule):
                 all valid proposals.
             - targets (Tensor): Extracted voxel-wise instance and semantic markup 
                 for all valid proposals.
-            - r2scene (Tensor): Roi to scene mapping.
+            - roi2scene (Tensor): Roi to scene mapping.
             - valid_roi_idxs (List[Tensor]): Valid boxes idxs after
                 feature extraction.
         """
@@ -271,9 +271,9 @@ class TD3DSegmentationHead(BaseModule):
             torch.cat(new_features),
             torch.cat(new_coordinates).float(),
             tensor_stride=x.tensor_stride)
-        r2scene = x.coordinates.new_tensor(ids)
+        roi2scene = x.coordinates.new_tensor(ids)
         
-        return new_tensor, r2scene, valid_roi_idxs
+        return new_tensor, roi2scene, valid_roi_idxs
  
     @staticmethod
     def get_face_distances(points: Tensor, boxes: Tensor) -> Tensor:
@@ -294,7 +294,7 @@ class TD3DSegmentationHead(BaseModule):
         return torch.stack((dx_min, dx_max, dy_min, dy_max, dz_min, dz_max), dim=-1)
 
     def _loss(self, cls_preds: Tensor, targets: Tensor, 
-              v2r: Tensor, r2scene: Tensor, 
+              voxel2roi: Tensor, roi2scene: Tensor, 
               rois: List[BaseInstance3DBoxes], gt_idxs: List[Tensor], 
               batch_data_samples: SampleList) -> dict:
         """Loss function about binary segmentation per mini-batch.
@@ -303,8 +303,8 @@ class TD3DSegmentationHead(BaseModule):
             cls_preds (Tensor): Extracted feature maps for all valid proposals.
             targets (Tensor): Extracted voxel-wise instance and semantic markup 
                 for all valid proposals.
-            v2r (Tensor): Voxel to roi mapping.
-            r2scene (Tensor): Roi to scene mapping.
+            voxel2roi (Tensor): Voxel to roi mapping.
+            roi2scene (Tensor): Roi to scene mapping.
             rois (List[BaseInstance3DBoxes]): Valid boxes for all
                 scenes in a mini-batch.
             gt_idxs (List[Tensor]): Bbox targets for rois for all
@@ -314,14 +314,14 @@ class TD3DSegmentationHead(BaseModule):
         Returns:
             dict: Instance and semantic losses.
         """
-        v2scene = r2scene[v2r]
+        v2scene = roi2scene[voxel2roi]
         inst_losses = []
         seg_losses = []
         for i in range(len(batch_data_samples)):
             inst_loss, seg_loss = self._loss_single(
                 cls_preds=cls_preds[v2scene == i],
                 targets=targets[v2scene == i],
-                v2r=v2r[v2scene == i],
+                voxel2roi=voxel2roi[v2scene == i],
                 rois=rois[i],
                 gt_idxs=gt_idxs[i],
                 batch_data_sample=batch_data_samples[i])
@@ -331,7 +331,7 @@ class TD3DSegmentationHead(BaseModule):
                     seg_loss=torch.mean(torch.stack(seg_losses)))
 
     def _loss_single(self, cls_preds: Tensor, targets: Tensor, 
-                     v2r: Tensor, rois: BaseInstance3DBoxes, 
+                     voxel2roi: Tensor, rois: BaseInstance3DBoxes, 
                      gt_idxs: Tensor, 
                      batch_data_sample: SampleList) -> tuple[Tensor, ...]:
         """Loss function about binary segmentation per scene.
@@ -340,7 +340,7 @@ class TD3DSegmentationHead(BaseModule):
             cls_preds (Tensor): Extracted feature maps for proposals.
             targets (Tensor): Extracted voxel-wise instance and semantic markup 
                 for proposals.
-            v2r (Tensor): Voxel to roi mapping.
+            voxel2roi (Tensor): Voxel to roi mapping.
             rois (BaseInstance3DBoxes): Valid boxes for a scene.
             gt_idxs (Tensor): Bbox targets for rois for a scene.
             batch_data_sample (SampleList): Batch of meta info.
@@ -350,13 +350,13 @@ class TD3DSegmentationHead(BaseModule):
         """
         if len(rois) == 0 or cls_preds.shape[0] == 0:
             return cls_preds.sum(), cls_preds.sum() 
-        v2r = v2r - v2r.min()
-        assert len(torch.unique(v2r)) == len(rois)
-        assert torch.all(torch.unique(v2r) == torch.arange(0, 
-                                                    v2r.max() + 1).to(v2r.device))
+        voxel2roi = voxel2roi - voxel2roi.min()
+        assert len(torch.unique(voxel2roi)) == len(rois)
+        assert torch.all(torch.unique(voxel2roi) == torch.arange(0, 
+                                                    voxel2roi.max() + 1).to(voxel2roi.device))
         assert torch.max(gt_idxs) < len(batch_data_sample.gt_instances_3d.bboxes_3d)
 
-        v2bbox = gt_idxs[v2r.long()]
+        v2bbox = gt_idxs[voxel2roi.long()]
         assert torch.unique(v2bbox)[0] != -1
         inst_targets = targets[:, 0]
         seg_targets = targets[:, 1]
@@ -374,7 +374,7 @@ class TD3DSegmentationHead(BaseModule):
   
     def predict(self,
                 x: SparseTensor, 
-                points: TensorField,
+                field: TensorField,
                 proposals: List[InstanceData],
                 batch_data_samples: SampleList,
                 **kwargs) -> List[PointData]:
@@ -382,31 +382,34 @@ class TD3DSegmentationHead(BaseModule):
 
         Args:
             x (SparseTensor): Input feature map.
-            points (TensorField): Source points for inverse mapping.
+            field (TensorField): TensorField containing 
+                source points for inverse mapping.
             proposals (List[InstanceData]): Predicted bounding boxes for all
                 scenes in a mini-batch.
             batch_data_samples (SampleList): Batch of meta info.
 
         Returns:
-            results (List[PointData]): Final predicted masks.
+            results (List[PointData]): Predicted instances 
+                with masks, scores and labels for all
+                scenes in a mini-batch.
         """
-        inv_mapping = points.inverse_mapping(x.coordinate_map_key).long()
+        inv_mapping = field.inverse_mapping(x.coordinate_map_key).long()
         src_idxs = torch.arange(0, x.features.shape[0]).to(inv_mapping.device)
         src_idxs = src_idxs.unsqueeze(1).expand(src_idxs.shape[0], 2)
         bboxes = [(p.bboxes_3d, p.scores_3d, p.labels_3d) for p in proposals]
-        cls_preds, idxs, v2r, r2scene, _ , scores, labels = self._forward(x, 
+        cls_preds, idxs, voxel2roi, roi2scene, _ , scores, labels = self._forward(x, 
                                                                     src_idxs, 
                                                                     bboxes)
         cls_preds = cls_preds[:, -1]
         idxs = idxs[:, 0]
-        v2scene = r2scene[v2r]
+        v2scene = roi2scene[voxel2roi]
         
         results = []
         for i in range(len(batch_data_samples)):
             result = self._get_instances_single(
                 cls_preds=cls_preds[v2scene == i],
                 idxs=idxs[v2scene == i],
-                v2r=v2r[v2scene == i],
+                voxel2roi=voxel2roi[v2scene == i],
                 scores=scores[i],
                 labels=labels[i],
                 inverse_mapping=inv_mapping)
@@ -416,7 +419,7 @@ class TD3DSegmentationHead(BaseModule):
 
     def _get_instances_single(self, 
                               cls_preds: Tensor, idxs: Tensor, 
-                              v2r: Tensor, scores: Tensor, 
+                              voxel2roi: Tensor, scores: Tensor, 
                               labels: Tensor, 
                               inverse_mapping: Tensor) -> PointData:
         """Get instances masks for one scene.
@@ -424,13 +427,14 @@ class TD3DSegmentationHead(BaseModule):
         Args:
             cls_preds (Tensor): Masks predictions for each proposal.
             idxs (Tensor): Voxels idxs in source voxel space.
-            v2r (Tensor): Voxel to roi mapping.
+            voxel2roi (Tensor): Voxel to roi mapping.
             scores (Tensor): Scores for proposals.
             labels (Tensor): Labels for proposals.
-            inverse mapping (Tensor): Voxel to point mapping.
+            inverse_mapping (Tensor): Voxel to point mapping.
         
         Returns:
-            PointData: Final instances.
+            PointData: Predicted instances 
+                with masks, scores and labels for one scene.
 
         """ 
         if scores.shape[0] == 0:
@@ -440,31 +444,31 @@ class TD3DSegmentationHead(BaseModule):
                                                 dtype=torch.long),
                     instance_scores=inverse_mapping.new_tensor([0], 
                                                     dtype=torch.float32))
-        v2r = v2r - v2r.min()
-        assert len(torch.unique(v2r)) == scores.shape[0]
-        assert torch.all(torch.unique(v2r) == torch.arange(0, 
-                                            v2r.max() + 1).to(v2r.device))
+        voxel2roi = voxel2roi - voxel2roi.min()
+        assert len(torch.unique(voxel2roi)) == scores.shape[0]
+        assert torch.all(torch.unique(voxel2roi) == torch.arange(0, 
+                                            voxel2roi.max() + 1).to(voxel2roi.device))
 
         cls_preds = cls_preds.sigmoid()
-        bin_cls_preds = cls_preds > self.test_cfg.seg_score_thr
-        v2r_one_hot = torch.nn.functional.one_hot(v2r).bool()
-        n_rois = v2r_one_hot.shape[1]
-        idxs_expand = idxs.unsqueeze(-1).expand(idxs.shape[0], 
+        bin_preds = cls_preds > self.test_cfg.seg_score_thr
+        voxel2roi_one_hot = torch.nn.functional.one_hot(voxel2roi).bool()
+        n_rois = voxel2roi_one_hot.shape[1]
+        idxs_exp = idxs.unsqueeze(-1).expand(idxs.shape[0], 
                                                 n_rois).long()
-        bin_preds_exp = bin_cls_preds.unsqueeze(-1).expand(bin_cls_preds.shape[0], 
+        bin_preds_exp = bin_preds.unsqueeze(-1).expand(bin_preds.shape[0], 
                                                                         n_rois)
         cls_preds[cls_preds <= self.test_cfg.seg_score_thr] = 0
-        cls_preds_expand = cls_preds.unsqueeze(-1).expand(cls_preds.shape[0],
+        cls_preds_exp = cls_preds.unsqueeze(-1).expand(cls_preds.shape[0],
                                                          n_rois)
-        idxs_expand[~v2r_one_hot] = inverse_mapping.max() + 1
+        idxs_exp[~voxel2roi_one_hot] = inverse_mapping.max() + 1
 
-        voxels_masks = idxs.new_zeros(inverse_mapping.max() + 2, 
+        voxels_masks = idxs.new_zeros(inverse_mapping.max() + 2, # the first +1 - because we start indexing from zero, the second +1 - for -1 element  
                                       n_rois, dtype=bool)
-        voxels_preds = idxs.new_zeros(inverse_mapping.max() + 2, 
+        voxels_preds = idxs.new_zeros(inverse_mapping.max() + 2, # the same
                                       n_rois)
-        voxels_preds = voxels_preds.scatter_(0, idxs_expand, 
-                                            cls_preds_expand)[:-1, :]
-        voxels_masks = voxels_masks.scatter_(0, idxs_expand, 
+        voxels_preds = voxels_preds.scatter_(0, idxs_exp, 
+                                            cls_preds_exp)[:-1, :]
+        voxels_masks = voxels_masks.scatter_(0, idxs_exp, 
                                                 bin_preds_exp)[:-1, :]
         
         scores = scores * voxels_preds.sum(axis=0) / (voxels_masks.sum(axis=0) + 0.001)

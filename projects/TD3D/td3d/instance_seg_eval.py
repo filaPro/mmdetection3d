@@ -8,7 +8,8 @@ from terminaltables import AsciiTable
 
 from mmdet3d.evaluation.functional.instance_seg_eval import scannet_eval
 
-# We only fix this line: info[file_name]['mask'] = mask[i].
+# 1) We fix this line: info[file_name]['mask'] = mask[i].
+# 2) mask.max() + 1 in for is always equal to 2. We have changed it to mask.shape[0] for iterating over all masks.
 def aggregate_predictions(masks, labels, scores, valid_class_ids):
     """Maps predictions to ScanNet evaluator format.
 

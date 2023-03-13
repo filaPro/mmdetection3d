@@ -130,12 +130,13 @@ class TD3D(Base3DDetector):
         for i in range(len(batch_data_samples)):
             gt_pts_seg = batch_data_samples[i].gt_pts_seg
 
-            gt_pts_seg.pts_instance_mask[gt_pts_seg.pts_semantic_mask == 18] = -1 #todo: why 18?
+            # because pts_instance_mask contains instances from non-instaces classes
+            gt_pts_seg.pts_instance_mask[gt_pts_seg.pts_semantic_mask == self.seg_head.num_classes] = -1
             idxs = torch.unique(gt_pts_seg.pts_instance_mask)
-            map = idxs.new_zeros(torch.max(torch.unique(gt_pts_seg.pts_instance_mask)) + 2).long()
-            for k in range(len(idxs)):
-                map[idxs[k]] = k - 1
-            gt_pts_seg.pts_instance_mask = map[gt_pts_seg.pts_instance_mask]
+            mapping = idxs.new_zeros(torch.max(torch.unique(gt_pts_seg.pts_instance_mask)) + 2).long()
+            new_idxs = torch.arange(len(idxs), device=idxs.device)
+            mapping[idxs] = new_idxs - 1
+            gt_pts_seg.pts_instance_mask = mapping[gt_pts_seg.pts_instance_mask]
 
             annotated_points.append(torch.cat((
                 batch_inputs_dict['points'][i],
