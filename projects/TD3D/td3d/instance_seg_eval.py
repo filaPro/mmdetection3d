@@ -8,7 +8,8 @@ from terminaltables import AsciiTable
 
 from mmdet3d.evaluation.functional.instance_seg_eval import scannet_eval
 
-# We only fix this line: info[file_name]['mask'] = mask[i].
+# 1) We fix this line: info[file_name]['mask'] = mask[i].
+# 2) mask.max() + 1 in for is always equal to 2. We have changed it to mask.shape[0] for iterating over all masks.
 def aggregate_predictions(masks, labels, scores, valid_class_ids):
     """Maps predictions to ScanNet evaluator format.
 
@@ -27,8 +28,7 @@ def aggregate_predictions(masks, labels, scores, valid_class_ids):
         label = label.clone().numpy()
         score = score.clone().numpy()
         info = dict()
-        n_instances = mask.max() + 1
-        for i in range(n_instances):
+        for i in range(mask.shape[0]):
             # match pred_instance['filename'] from assign_instances_for_scan
             file_name = f'{id}_{i}'
             info[file_name] = dict()
@@ -61,10 +61,10 @@ def rename_gt(gt_semantic_masks, gt_instance_masks, valid_class_ids):
             semantic_instance = semantic_mask[instance_mask == i]
             semantic_unique = np.unique(semantic_instance)
             assert len(semantic_unique) == 1
-            if semantic_unique[0] < len(valid_class_ids):
+            if semantic_unique[0] in valid_class_ids:
                 instance_mask[
                     instance_mask ==
-                    i] = 1000 * valid_class_ids[semantic_unique[0]] + i
+                    i] = 1000 * semantic_unique[0] + i
         renamed_instance_masks.append(instance_mask)
     return renamed_instance_masks
 
