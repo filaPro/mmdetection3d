@@ -33,7 +33,7 @@ train_pipeline = [
         type='Elastic'),
     dict(
         type='GlobalRotScaleTrans',
-        rot_range=[-0.087266, 0.087266],  # todo: do we need it?
+        rot_range=[-3.14, 3.14],
         scale_ratio_range=[0.8, 1.2],
         translation_std=[0.1, 0.1, 0.1],
         shift_height=False),
