@@ -1,8 +1,10 @@
 _base_ = ['./td3d.py', 'mmdet3d::_base_/datasets/scannet-3d.py']
 custom_imports = dict(imports=['projects.TD3D.td3d'])
 
+num_classes=18
+
 # model settings
-model = dict(bbox_head=dict(num_classes=18))
+model = dict(bbox_head=dict(num_classes=num_classes))
 
 # dataset settings
 train_pipeline = [
@@ -28,11 +30,16 @@ train_pipeline = [
         flip_ratio_bev_horizontal=0.5,
         flip_ratio_bev_vertical=0.5),
     dict(
+        type='Elastic'),
+    dict(
         type='GlobalRotScaleTrans',
         rot_range=[-0.087266, 0.087266],  # todo: do we need it?
         scale_ratio_range=[0.8, 1.2],
         translation_std=[0.1, 0.1, 0.1],
         shift_height=False),
+    dict(
+        type='BboxRecalculation',
+        num_classes=num_classes),
     dict(type='NormalizePointsColor', color_mean=None),
     dict(
         type='Pack3DDetInputs',
