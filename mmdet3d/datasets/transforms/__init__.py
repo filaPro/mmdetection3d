@@ -16,7 +16,7 @@ from .transforms_3d import (AffineResize, BackgroundPointsFilter,
                             PhotoMetricDistortion3D, PointSample, PointShuffle,
                             PointsRangeFilter, RandomDropPointsColor,
                             RandomFlip3D, RandomJitterPoints, RandomResize3D,
-                            RandomShiftScale, Resize3D, VoxelBasedPointSampler)
+                            RandomShiftScale, Resize3D, VoxelBasedPointSampler, Elastic, BboxRecalculation, GlobalRotScaleTransV2)
 
 __all__ = [
     'ObjectSample', 'RandomFlip3D', 'ObjectNoise', 'GlobalRotScaleTrans',
@@ -30,5 +30,5 @@ __all__ = [
     'RandomDropPointsColor', 'RandomJitterPoints', 'AffineResize',
     'RandomShiftScale', 'LoadPointsFromDict', 'Resize3D', 'RandomResize3D',
     'MultiViewWrapper', 'PhotoMetricDistortion3D', 'MonoDet3DInferencerLoader',
-    'LidarDet3DInferencerLoader'
+    'LidarDet3DInferencerLoader', 'Elastic', 'BboxRecalculation', 'GlobalRotScaleTransV2'
 ]

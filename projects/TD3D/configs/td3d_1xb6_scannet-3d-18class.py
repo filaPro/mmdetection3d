@@ -28,11 +28,16 @@ train_pipeline = [
         flip_ratio_bev_horizontal=0.5,
         flip_ratio_bev_vertical=0.5),
     dict(
+        type='Elastic'),
+    dict(
         type='GlobalRotScaleTrans',
-        rot_range=[-0.087266, 0.087266],  # todo: do we need it?
-        scale_ratio_range=[0.8, 1.2],
-        translation_std=[0.1, 0.1, 0.1],
+        rot_range_z=[-3.14, 3.14],
+        rot_range_x_y=[-0.1308, 0.1308],
+        scale_ratio_range=[.8, 1.2],
+        translation_std=[.1, .1, .1],
         shift_height=False),
+    dict(
+        type='BboxRecalculation'),
     dict(type='NormalizePointsColor', color_mean=None),
     dict(
         type='Pack3DDetInputs',
@@ -55,7 +60,6 @@ test_pipeline = [
         with_label_3d=False,
         with_mask_3d=True,
         with_seg_3d=True),
-    dict(type='GlobalAlignment', rotation_axis=2),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),

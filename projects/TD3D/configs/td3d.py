@@ -35,12 +35,12 @@ model = dict(
             out_channels=18 + 1,
             depth=14)),
     train_cfg=dict(
-        num_proposals=1,
+        num_proposals=2,
         target_iou_thr=0.25),
     test_cfg=dict(
         nms_pre=1200,
         iou_thr=0.4,
-        det_score_thr=0.1,
+        det_score_thr=0.05,
         seg_score_thr=0.2))
 
 optim_wrapper = dict(
