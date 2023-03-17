@@ -1,17 +1,16 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import random
 import warnings
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 import cv2
 import mmcv
 import numpy as np
-import scipy
 import torch
 from mmcv.transforms import BaseTransform, Compose, RandomResize, Resize
 from mmdet.datasets.transforms import (PhotoMetricDistortion, RandomCrop,
                                        RandomFlip)
-from mmengine import is_tuple_of
+from mmengine import is_list_of, is_tuple_of
 
 from mmdet3d.models.task_modules import VoxelGenerator
 from mmdet3d.registry import TRANSFORMS
@@ -620,85 +619,6 @@ class GlobalAlignment(BaseTransform):
         repr_str += f'(rotation_axis={self.rotation_axis})'
         return repr_str
 
-@TRANSFORMS.register_module()
-class Elastic(BaseTransform):
-
-    def transform(self, input_dict):
-        coords = input_dict['points'].tensor[:, :3].numpy()
-        coords = self.elastic(coords, 6, 40.)
-        coords = self.elastic(coords, 20, 160.)
-        input_dict['points'].tensor[:, :3] = torch.tensor(coords)
-        return input_dict
-
-    def elastic(self, x, gran, mag):
-        blur0 = np.ones((3, 1, 1)).astype('float32') / 3
-        blur1 = np.ones((1, 3, 1)).astype('float32') / 3
-        blur2 = np.ones((1, 1, 3)).astype('float32') / 3
-
-        bb = np.abs(x).max(0).astype(np.int32) // gran + 3
-        noise = [np.random.randn(bb[0], bb[1], bb[2]).astype('float32') for _ in range(3)]
-        noise = [scipy.ndimage.filters.convolve(n, blur0, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur1, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur2, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur0, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur1, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur2, mode='constant', cval=0) for n in noise]
-        ax = [np.linspace(-(b - 1) * gran, (b - 1) * gran, b) for b in bb]
-        interp = [
-            scipy.interpolate.RegularGridInterpolator(ax, n, bounds_error=0, fill_value=0)
-            for n in noise
-        ]
-
-        def g(x_):
-            return np.hstack([i(x_)[:, None] for i in interp])
-
-        return x + g(x) * mag
-
-@TRANSFORMS.register_module()
-class BboxRecalculation(BaseTransform):
-
-    def transform(self, input_dict):
-        pts_instance_mask = torch.tensor(input_dict['pts_instance_mask'])
-        pts_semantic_mask = torch.tensor(input_dict['pts_semantic_mask'])
-        pts_instance_mask[pts_semantic_mask == 18] = -1
-        pts_semantic_mask[pts_semantic_mask == 18] = -1
-        
-        idxs = torch.unique(pts_instance_mask)
-        map = torch.zeros(torch.max(idxs) + 2, dtype=torch.long)
-        for k in range(len(idxs)):
-            map[idxs[k]] = k - 1
-        pts_instance_mask = map[pts_instance_mask]
-
-
-        input_dict['pts_instance_mask'] = pts_instance_mask.numpy()
-        input_dict['pts_semantic_mask'] = pts_semantic_mask.numpy()
-
-        
-        pts_instance_mask[pts_instance_mask == -1] = torch.max(pts_instance_mask) + 1
-        pts_instance_mask_one_hot = torch.nn.functional.one_hot(pts_instance_mask)[
-            :, :-1
-        ]
-
-        points = input_dict['points'][:, :3].tensor
-        points_for_max = points.unsqueeze(1).expand(points.shape[0], pts_instance_mask_one_hot.shape[1], points.shape[1]).clone()
-        points_for_min = points.unsqueeze(1).expand(points.shape[0], pts_instance_mask_one_hot.shape[1], points.shape[1]).clone()
-        points_for_max[~pts_instance_mask_one_hot.bool()] = float('-inf')
-        points_for_min[~pts_instance_mask_one_hot.bool()] = float('inf')
-        bboxes_max = points_for_max.max(axis=0)[0]
-        bboxes_min = points_for_min.min(axis=0)[0]
-        bboxes_sizes = bboxes_max - bboxes_min
-        bboxes_centers = (bboxes_max + bboxes_min) / 2
-        bboxes = torch.hstack((bboxes_centers, bboxes_sizes, torch.zeros_like(bboxes_sizes[:, :1])))
-        input_dict["gt_bboxes_3d"] = input_dict["gt_bboxes_3d"].__class__(bboxes, with_yaw=False, origin=(.5, .5, .5))
-
-        pts_semantic_mask_expand = pts_semantic_mask.unsqueeze(1).expand(pts_semantic_mask.shape[0], pts_instance_mask_one_hot.shape[1]).clone()
-        pts_semantic_mask_expand[~pts_instance_mask_one_hot.bool()] = -1
-        assert pts_semantic_mask_expand.max(axis=0)[0].shape[0] != 0
-        input_dict['gt_labels_3d'] = pts_semantic_mask_expand.max(axis=0)[0].numpy()
-        return input_dict
-
-
-
 
 @TRANSFORMS.register_module()
 class GlobalRotScaleTrans(BaseTransform):
@@ -737,15 +657,16 @@ class GlobalRotScaleTrans(BaseTransform):
     """
 
     def __init__(self,
-                 rot_range_z=[-0.78539816, 0.78539816],
-                 rot_range_x_y=[-0.1308, 0.1308],
+                 rot_range: List[float] = [-0.78539816, 0.78539816],
                  scale_ratio_range: List[float] = [0.95, 1.05],
                  translation_std: List[int] = [0, 0, 0],
                  shift_height: bool = False) -> None:
         seq_types = (list, tuple, np.ndarray)
-        
-        self.rot_range_z = rot_range_z
-        self.rot_range_x_y = rot_range_x_y
+        if not isinstance(rot_range, seq_types):
+            assert isinstance(rot_range, (int, float)), \
+                f'unsupported rot_range type {type(rot_range)}'
+            rot_range = [-rot_range, rot_range]
+        self.rot_range = rot_range
 
         assert isinstance(scale_ratio_range, seq_types), \
             f'unsupported scale_ratio_range type {type(scale_ratio_range)}'
@@ -791,15 +712,21 @@ class GlobalRotScaleTrans(BaseTransform):
             dict: Results after rotation, 'points', 'pcd_rotation'
             and `gt_bboxes_3d` is updated in the result dict.
         """
-        noise_rotation_z = np.random.uniform(self.rot_range_z[0], self.rot_range_z[1])
-        noise_rotation_x = np.random.uniform(self.rot_range_x_y[0], self.rot_range_x_y[1])
-        noise_rotation_y = np.random.uniform(self.rot_range_x_y[0], self.rot_range_x_y[1])
-        
-        rot_mat_T_z = input_dict['points'].rotate(noise_rotation_z, axis=2)
-        rot_mat_T_x = input_dict['points'].rotate(noise_rotation_x, axis=0) #todo: is axis=0 x?
-        rot_mat_T_y = input_dict['points'].rotate(noise_rotation_y, axis=1) #todo: similarly
-        input_dict['pcd_rotation'] = rot_mat_T_z @ rot_mat_T_x @ rot_mat_T_y
-        input_dict['pcd_rotation_angle'] = noise_rotation_z
+        rotation = self.rot_range
+        noise_rotation = np.random.uniform(rotation[0], rotation[1])
+
+        if 'gt_bboxes_3d' in input_dict and \
+                len(input_dict['gt_bboxes_3d'].tensor) != 0:
+            # rotate points with bboxes
+            points, rot_mat_T = input_dict['gt_bboxes_3d'].rotate(
+                noise_rotation, input_dict['points'])
+            input_dict['points'] = points
+        else:
+            # if no bbox in input_dict, only rotate points
+            rot_mat_T = input_dict['points'].rotate(noise_rotation)
+
+        input_dict['pcd_rotation'] = rot_mat_T
+        input_dict['pcd_rotation_angle'] = noise_rotation
 
     def _scale_bbox_points(self, input_dict: dict) -> None:
         """Private function to scale bounding boxes and points.
@@ -873,160 +800,6 @@ class GlobalRotScaleTrans(BaseTransform):
         repr_str += f' shift_height={self.shift_height})'
         return repr_str
 
-@TRANSFORMS.register_module()
-class GlobalRotScaleTransV2(BaseTransform):
-    """Apply global rotation, scaling and translation to a 3D scene.
-
-    Args:
-        rot_range (list[float], optional): Range of rotation angle.
-            Defaults to [-0.78539816, 0.78539816] (close to [-pi/4, pi/4]).
-        scale_ratio_range (list[float], optional): Range of scale ratio.
-            Defaults to [0.95, 1.05].
-        translation_std (list[float], optional): The standard deviation of
-            translation noise applied to a scene, which
-            is sampled from a gaussian distribution whose standard deviation
-            is set by ``translation_std``. Defaults to [0, 0, 0]
-        shift_height (bool, optional): Whether to shift height.
-            (the fourth dimension of indoor points) when scaling.
-            Defaults to False.
-    """
-
-    def __init__(self,
-                 rot_range_z=[-0.78539816, 0.78539816],
-                 rot_range_x_y=[-0.1308, 0.1308],
-                 scale_ratio_range=[0.95, 1.05],
-                 translation_std=[0, 0, 0],
-                 shift_height=False):
-        seq_types = (list, tuple, np.ndarray)
-
-        self.rot_range_z = rot_range_z
-        self.rot_range_x_y = rot_range_x_y
-
-        assert isinstance(scale_ratio_range, seq_types), \
-            f'unsupported scale_ratio_range type {type(scale_ratio_range)}'
-        self.scale_ratio_range = scale_ratio_range
-
-        if not isinstance(translation_std, seq_types):
-            assert isinstance(translation_std, (int, float)), \
-                f'unsupported translation_std type {type(translation_std)}'
-            translation_std = [
-                translation_std, translation_std, translation_std
-            ]
-        assert all([std >= 0 for std in translation_std]), \
-            'translation_std should be positive'
-        self.translation_std = translation_std
-        self.shift_height = shift_height
-
-    def _trans_bbox_points(self, input_dict):
-        """Private function to translate bounding boxes and points.
-
-        Args:
-            input_dict (dict): Result dict from loading pipeline.
-
-        Returns:
-            dict: Results after translation, 'points', 'pcd_trans'
-                and keys in input_dict['bbox3d_fields'] are updated
-                in the result dict.
-        """
-        translation_std = np.array(self.translation_std, dtype=np.float32)
-        trans_factor = np.random.normal(scale=translation_std, size=3).T
-
-        input_dict['points'].translate(trans_factor)
-        input_dict['pcd_trans'] = trans_factor
-        # for key in input_dict['bbox3d_fields']:
-        #     input_dict[key].translate(trans_factor)
-
-    def _rot_bbox_points(self, input_dict):
-        """Private function to rotate bounding boxes and points.
-
-        Args:
-            input_dict (dict): Result dict from loading pipeline.
-
-        Returns:
-            dict: Results after rotation, 'points', 'pcd_rotation'
-                and keys in input_dict['bbox3d_fields'] are updated
-                in the result dict.
-        """
-        noise_rotation_z = np.random.uniform(self.rot_range_z[0], self.rot_range_z[1])
-        noise_rotation_x = np.random.uniform(self.rot_range_x_y[0], self.rot_range_x_y[1])
-        noise_rotation_y = np.random.uniform(self.rot_range_x_y[0], self.rot_range_x_y[1])
-
-        rot_mat_T_z = input_dict['points'].rotate(noise_rotation_z, axis=2)
-        rot_mat_T_x = input_dict['points'].rotate(noise_rotation_x, axis=0) #todo: is axis=0 x?
-        rot_mat_T_y = input_dict['points'].rotate(noise_rotation_y, axis=1) #todo: similarly
-        input_dict['pcd_rotation'] = rot_mat_T_z @ rot_mat_T_x @ rot_mat_T_y
-        input_dict['pcd_rotation_angle'] = noise_rotation_z
-
-    def _scale_bbox_points(self, input_dict):
-        """Private function to scale bounding boxes and points.
-
-        Args:
-            input_dict (dict): Result dict from loading pipeline.
-
-        Returns:
-            dict: Results after scaling, 'points'and keys in
-                input_dict['bbox3d_fields'] are updated in the result dict.
-        """
-        scale = input_dict['pcd_scale_factor']
-        points = input_dict['points']
-        points.scale(scale)
-        if self.shift_height:
-            assert 'height' in points.attribute_dims.keys(), \
-                'setting shift_height=True but points have no height attribute'
-            points.tensor[:, points.attribute_dims['height']] *= scale
-        input_dict['points'] = points
-
-        # for key in input_dict['bbox3d_fields']:
-        #     input_dict[key].scale(scale)
-
-    def _random_scale(self, input_dict):
-        """Private function to randomly set the scale factor.
-
-        Args:
-            input_dict (dict): Result dict from loading pipeline.
-
-        Returns:
-            dict: Results after scaling, 'pcd_scale_factor' are updated
-                in the result dict.
-        """
-        scale_factor = np.random.uniform(self.scale_ratio_range[0],
-                                         self.scale_ratio_range[1])
-        input_dict['pcd_scale_factor'] = scale_factor
-
-    def transform(self, input_dict):
-        """Private function to rotate, scale and translate bounding boxes and
-        points.
-
-        Args:
-            input_dict (dict): Result dict from loading pipeline.
-
-        Returns:
-            dict: Results after scaling, 'points', 'pcd_rotation',
-                'pcd_scale_factor', 'pcd_trans' and keys in
-                input_dict['bbox3d_fields'] are updated in the result dict.
-        """
-        if 'transformation_3d_flow' not in input_dict:
-            input_dict['transformation_3d_flow'] = []
-
-        self._rot_bbox_points(input_dict)
-
-        if 'pcd_scale_factor' not in input_dict:
-            self._random_scale(input_dict)
-        self._scale_bbox_points(input_dict)
-
-        self._trans_bbox_points(input_dict)
-
-        input_dict['transformation_3d_flow'].extend(['R', 'S', 'T'])
-        return input_dict
-
-    def __repr__(self):
-        """str: Return a string that describes the module."""
-        repr_str = self.__class__.__name__
-        repr_str += f'(rot_range={self.rot_range},'
-        repr_str += f' scale_ratio_range={self.scale_ratio_range},'
-        repr_str += f' translation_std={self.translation_std},'
-        repr_str += f' shift_height={self.shift_height})'
-        return repr_str
 
 @TRANSFORMS.register_module()
 class PointShuffle(BaseTransform):
@@ -2580,3 +2353,171 @@ class MultiViewWrapper(BaseTransform):
             if len(input_dict[key]) == 0:
                 input_dict.pop(key)
         return input_dict
+
+
+@TRANSFORMS.register_module()
+class PolarMix(BaseTransform):
+    """PolarMix data augmentation.
+
+    The polarmix transform steps are as follows:
+
+        1. Another random point cloud is picked by dataset.
+        2. Exchange sectors of two point clouds that are cut with certain
+           azimuth angles.
+        3. Cut point instances from picked point cloud, rotate them by multiple
+           azimuth angles, and paste the cut and rotated instances.
+
+    Required Keys:
+
+    - points (:obj:`BasePoints`)
+    - pts_semantic_mask (np.int64)
+    - dataset (:obj:`BaseDataset`)
+
+    Modified Keys:
+
+    - points (:obj:`BasePoints`)
+    - pts_semantic_mask (np.int64)
+
+    Args:
+        instance_classes (List[int]): Semantic masks which represent the
+            instance.
+        swap_ratio (float): Swap ratio of two point cloud. Defaults to 0.5.
+        rotate_paste_ratio (float): Rotate paste ratio. Defaults to 1.0.
+        pre_transform (Sequence[dict], optional): Sequence of transform object
+            or config dict to be composed. Defaults to None.
+        prob (float): The transformation probability. Defaults to 1.0.
+    """
+
+    def __init__(self,
+                 instance_classes: List[int],
+                 swap_ratio: float = 0.5,
+                 rotate_paste_ratio: float = 1.0,
+                 pre_transform: Optional[Sequence[dict]] = None,
+                 prob: float = 1.0) -> None:
+        assert is_list_of(instance_classes, int), \
+            'instance_classes should be a list of int'
+        self.instance_classes = instance_classes
+        self.swap_ratio = swap_ratio
+        self.rotate_paste_ratio = rotate_paste_ratio
+
+        self.prob = prob
+        if pre_transform is None:
+            self.pre_transform = None
+        else:
+            self.pre_transform = Compose(pre_transform)
+
+    def polar_mix_transform(self, input_dict: dict, mix_results: dict) -> dict:
+        """PolarMix transform function.
+
+        Args:
+            input_dict (dict): Result dict from loading pipeline.
+            mix_results (dict): Mixed dict picked from dataset.
+
+        Returns:
+            dict: output dict after transformation.
+        """
+        mix_points = mix_results['points']
+        mix_pts_semantic_mask = mix_results['pts_semantic_mask']
+
+        points = input_dict['points']
+        pts_semantic_mask = input_dict['pts_semantic_mask']
+
+        # 1. swap point cloud
+        if np.random.random() < self.swap_ratio:
+            start_angle = (np.random.random() - 1) * np.pi  # -pi~0
+            end_angle = start_angle + np.pi
+            # calculate horizontal angle for each point
+            yaw = -torch.atan2(points.coord[:, 1], points.coord[:, 0])
+            mix_yaw = -torch.atan2(mix_points.coord[:, 1], mix_points.coord[:,
+                                                                            0])
+
+            # select points in sector
+            idx = (yaw <= start_angle) | (yaw >= end_angle)
+            mix_idx = (mix_yaw > start_angle) & (mix_yaw < end_angle)
+
+            # swap
+            points = points.cat([points[idx], mix_points[mix_idx]])
+            pts_semantic_mask = np.concatenate(
+                (pts_semantic_mask[idx.numpy()],
+                 mix_pts_semantic_mask[mix_idx.numpy()]),
+                axis=0)
+
+        # 2. rotate-pasting
+        if np.random.random() < self.rotate_paste_ratio:
+            # extract instance points
+            instance_points, instance_pts_semantic_mask = [], []
+            for instance_class in self.instance_classes:
+                mix_idx = mix_pts_semantic_mask == instance_class
+                instance_points.append(mix_points[mix_idx])
+                instance_pts_semantic_mask.append(
+                    mix_pts_semantic_mask[mix_idx])
+            instance_points = mix_points.cat(instance_points)
+            instance_pts_semantic_mask = np.concatenate(
+                instance_pts_semantic_mask, axis=0)
+
+            # rotate-copy
+            copy_points = [instance_points]
+            copy_pts_semantic_mask = [instance_pts_semantic_mask]
+            angle_list = [
+                np.random.random() * np.pi * 2 / 3,
+                (np.random.random() + 1) * np.pi * 2 / 3
+            ]
+            for angle in angle_list:
+                new_points = instance_points.clone()
+                new_points.rotate(angle)
+                copy_points.append(new_points)
+                copy_pts_semantic_mask.append(instance_pts_semantic_mask)
+            copy_points = instance_points.cat(copy_points)
+            copy_pts_semantic_mask = np.concatenate(
+                copy_pts_semantic_mask, axis=0)
+
+            points = points.cat([points, copy_points])
+            pts_semantic_mask = np.concatenate(
+                (pts_semantic_mask, copy_pts_semantic_mask), axis=0)
+
+        input_dict['points'] = points
+        input_dict['pts_semantic_mask'] = pts_semantic_mask
+        return input_dict
+
+    def transform(self, input_dict: dict) -> dict:
+        """PolarMix transform function.
+
+        Args:
+            input_dict (dict): Result dict from loading pipeline.
+
+        Returns:
+            dict: output dict after transformation.
+        """
+        if np.random.rand() > self.prob:
+            return input_dict
+
+        assert 'dataset' in input_dict, \
+            '`dataset` is needed to pass through PolarMix, while not found.'
+        dataset = input_dict['dataset']
+
+        # get index of other point cloud
+        index = np.random.randint(0, len(dataset))
+
+        mix_results = dataset.get_data_info(index)
+
+        if self.pre_transform is not None:
+            # pre_transform may also require dataset
+            mix_results.update({'dataset': dataset})
+            # before polarmix need to go through
+            # the necessary pre_transform
+            mix_results = self.pre_transform(mix_results)
+            mix_results.pop('dataset')
+
+        input_dict = self.polar_mix_transform(input_dict, mix_results)
+
+        return input_dict
+
+    def __repr__(self) -> str:
+        """str: Return a string that describes the module."""
+        repr_str = self.__class__.__name__
+        repr_str += f'(instance_classes={self.instance_classes}, '
+        repr_str += f'swap_ratio={self.swap_ratio}, '
+        repr_str += f'rotate_paste_ratio={self.rotate_paste_ratio}, '
+        repr_str += f'pre_transform={self.pre_transform}, '
+        repr_str += f'prob={self.prob})'
+        return repr_str
