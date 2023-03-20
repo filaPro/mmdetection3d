@@ -164,6 +164,5 @@ class BboxRecalculation(BaseTransform):
         pts_semantic_mask_expand = pts_semantic_mask.unsqueeze(1).expand(pts_semantic_mask.shape[0], 
                                                                          pts_instance_mask_one_hot.shape[1]).clone()
         pts_semantic_mask_expand[~pts_instance_mask_one_hot.bool()] = -1
-        assert pts_semantic_mask_expand.max(axis=0)[0].shape[0] != 0
         input_dict['gt_labels_3d'] = pts_semantic_mask_expand.max(axis=0)[0].numpy()
         return input_dict
