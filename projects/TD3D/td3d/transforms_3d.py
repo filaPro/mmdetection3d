@@ -31,7 +31,7 @@ class ElasticTransfrom(BaseTransform):
         self.gran = gran
         self.mag = mag
     
-    def transform(self, input_dict: dict) -> None:
+    def transform(self, input_dict: dict) -> dict:
         """Private function-wrapper for elastic transform.
 
         Args:
@@ -109,7 +109,7 @@ class BboxRecalculation(BaseTransform):
                  num_classes: int) -> None:
         self.num_classes = num_classes
 
-    def transform(self, input_dict: dict) -> None:
+    def transform(self, input_dict: dict) -> dict:
         """Private function for re-calculation of bounding boxes.
 
         Args:
