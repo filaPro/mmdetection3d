@@ -30,7 +30,9 @@ train_pipeline = [
         flip_ratio_bev_horizontal=0.5,
         flip_ratio_bev_vertical=0.5),
     dict(
-        type='Elastic'),
+        type='ElasticTransfrom',
+        gran=[6, 20],
+        mag=[40, 160]),
     dict(
         type='GlobalRotScaleTrans',
         rot_range=[-3.14, 3.14],
@@ -62,7 +64,6 @@ test_pipeline = [
         with_label_3d=False,
         with_mask_3d=True,
         with_seg_3d=True),
-    dict(type='GlobalAlignment', rotation_axis=2),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),

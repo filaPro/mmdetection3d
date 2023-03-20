@@ -1,4 +1,6 @@
+from typing import List
 import numpy as np
+from numpy import ndarray
 import scipy
 import torch
 from mmcv.transforms import BaseTransform
@@ -6,7 +8,7 @@ from mmcv.transforms import BaseTransform
 from mmdet3d.registry import TRANSFORMS
 
 @TRANSFORMS.register_module()
-class Elastic(BaseTransform):
+class ElasticTransfrom(BaseTransform):
     """Apply elastic augmentation to a 3D scene.
 
     Required Keys:
@@ -17,10 +19,20 @@ class Elastic(BaseTransform):
 
     - points (np.float32)
 
+    Args:
+        gran (List[float]): Size of the noise grid (in same scale[m/cm]
+            as the voxel grid).
+        mag: (List[float]): Noise multiplier.
     """
-
-    def transform(self, input_dict):
-        """Private function for elastic to a points.
+    
+    def __init__(self,
+                 gran: List[float],
+                 mag: List[float]) -> None:
+        self.gran = gran
+        self.mag = mag
+    
+    def transform(self, input_dict: dict) -> None:
+        """Private function-wrapper for elastic transform.
 
         Args:
             input_dict (dict): Result dict from loading pipeline.
@@ -31,38 +43,49 @@ class Elastic(BaseTransform):
         """
 
         coords = input_dict['points'].tensor[:, :3].numpy()
-        coords = self.elastic(coords, 6, 40.)
-        coords = self.elastic(coords, 20, 160.)
+        coords = self.elastic(coords, self.gran[0], self.mag[0])
+        coords = self.elastic(coords, self.gran[1], self.mag[1])
         input_dict['points'].tensor[:, :3] = torch.tensor(coords)
         return input_dict
 
-    def elastic(self, x, gran, mag):
+    def elastic(self, x: ndarray, gran: List[float], 
+                mag: List[float]) -> ndarray: 
+        """Private function for elastic transform to a points.
+
+        Args:
+            x (ndarray): Point cloud.
+            gran (List[float]): Size of the noise grid (in same scale[m/cm]
+                as the voxel grid).
+            mag: (List[float]): Noise multiplier.
+
+        Returns:
+            dict: Results after elastic, 'points' is updated
+            in the result dict.
+        """
         blur0 = np.ones((3, 1, 1)).astype('float32') / 3
         blur1 = np.ones((1, 3, 1)).astype('float32') / 3
         blur2 = np.ones((1, 1, 3)).astype('float32') / 3
 
-        bb = np.abs(x).max(0).astype(np.int32) // gran + 3
-        noise = [np.random.randn(bb[0], bb[1], bb[2]).astype('float32') for _ in range(3)]
-        noise = [scipy.ndimage.filters.convolve(n, blur0, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur1, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur2, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur0, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur1, mode='constant', cval=0) for n in noise]
-        noise = [scipy.ndimage.filters.convolve(n, blur2, mode='constant', cval=0) for n in noise]
-        ax = [np.linspace(-(b - 1) * gran, (b - 1) * gran, b) for b in bb]
+        noise_dim = np.abs(x).max(0).astype(np.int32) // gran + 3
+        noise = [np.random.randn(noise_dim[0], noise_dim[1], 
+                                 noise_dim[2]).astype('float32') for _ in range(3)]
+
+        for blur in [blur0, blur1, blur2, blur0, blur1, blur2]:
+            noise = [scipy.ndimage.filters.convolve(n, blur, 
+                                                    mode='constant', 
+                                                    cval=0) for n in noise]
+
+        ax = [np.linspace(-(b - 1) * gran, (b - 1) * gran, b) for b in noise_dim]
         interp = [
             scipy.interpolate.RegularGridInterpolator(ax, n, bounds_error=0, fill_value=0)
             for n in noise
         ]
 
-        def g(x_):
-            return np.hstack([i(x_)[:, None] for i in interp])
-
-        return x + g(x) * mag
+        return x + np.hstack([i(x)[:, None] for i in interp]) * mag
 
 @TRANSFORMS.register_module()
 class BboxRecalculation(BaseTransform):
-    """Re-calculation of bounding boxes after all points's augmentations.
+    """Re-calculation of bounding boxes after all point augmentations.
 
     Required Keys:
 
@@ -86,7 +109,7 @@ class BboxRecalculation(BaseTransform):
                  num_classes: int) -> None:
         self.num_classes = num_classes
 
-    def transform(self, input_dict):
+    def transform(self, input_dict: dict) -> None:
         """Private function for re-calculation of bounding boxes.
 
         Args:
@@ -135,7 +158,7 @@ class BboxRecalculation(BaseTransform):
         bboxes_sizes = bboxes_max - bboxes_min
         bboxes_centers = (bboxes_max + bboxes_min) / 2
         bboxes = torch.hstack((bboxes_centers, bboxes_sizes, torch.zeros_like(bboxes_sizes[:, :1])))
-        input_dict["gt_bboxes_3d"] = input_dict["gt_bboxes_3d"].__class__(bboxes, with_yaw=False, 
+        input_dict['gt_bboxes_3d'] = input_dict['gt_bboxes_3d'].__class__(bboxes, with_yaw=False, 
                                                                           origin=(.5, .5, .5))
 
         pts_semantic_mask_expand = pts_semantic_mask.unsqueeze(1).expand(pts_semantic_mask.shape[0], 

@@ -6,10 +6,10 @@ from .td3d_detection_head import TD3DDetectionHead
 from .td3d_segmentation_head import TD3DSegmentationHead
 from .instance_seg_metric import TD3DInstanceSegMetric
 from .td3d import TD3D
-from .td3d_transforms import Elastic, BboxRecalculation
+from .transforms_3d import ElasticTransfrom, BboxRecalculation
 
 __all__ = [
     'TD3DMinkResNet', 'TD3DMinkUNet', 'TD3DNeck', 'TD3DDetectionHead'
     'TD3DSegmentationHead', 'TD3D', 'TD3DAxisAlignedIoULoss',
-    'TD3DInstanceSegMetric', 'Elastic', 'BboxRecalculation'
+    'TD3DInstanceSegMetric', 'ElasticTransfrom', 'BboxRecalculation'
 ]
